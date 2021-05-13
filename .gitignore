@@ -138,7 +138,9 @@ dmypy.json
 cython_debug/
 
 # data folder
-data
+data/images
+data/meta
+data/food*
 
 # state folder
 state
