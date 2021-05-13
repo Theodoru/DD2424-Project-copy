@@ -144,3 +144,6 @@ data/food*
 
 # state folder
 state
+
+# vscode folder
+.vscode
