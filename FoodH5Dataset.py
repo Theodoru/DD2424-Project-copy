@@ -1,13 +1,30 @@
+import ntpath
 import torch
 import h5py
+import urllib
 import numpy as np
-
+from pathlib import Path
 
 class FoodH5Dataset(torch.utils.data.Dataset):
 
-    def __init__(self, file_path):
+    def __init__(self, root, download, url):
         super(FoodH5Dataset, self).__init__()
-        h5_file = h5py.File(file_path, 'r')
+
+        self.root = root
+        self.url = url
+        self.filename = ntpath.basename(url)
+        self.filepath = f"{self.root}/{self.filename}"
+
+        if Path(self.filepath).is_file():
+            if download:
+                print(f"File {self.filepath} already exists")
+        else:
+            if download:
+                self.download()
+            else:
+                print(f"File {self.filepath} does not exist, try setting download=True")
+
+        h5_file = h5py.File(self.filepath, 'r')
         self.category = np.array(h5_file['category'], dtype=bool)
         self.category_names = np.array(h5_file['category_names'], dtype=str)
         self.images = np.array(h5_file['images'], dtype=np.float64)
@@ -22,4 +39,9 @@ class FoodH5Dataset(torch.utils.data.Dataset):
     
     def __len__(self):
         return self.images.shape[0]
+
+    def download(self):
+        print(f"Downloading from {self.url}")
+        urllib.request.urlretrieve(self.url, self.filepath)
+        print(f"{self.filepath} downloaded.")
 
