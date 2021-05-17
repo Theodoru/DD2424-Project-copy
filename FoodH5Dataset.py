@@ -27,8 +27,8 @@ class FoodH5Dataset(torch.utils.data.Dataset):
 
         h5_file = h5py.File(self.filepath, 'r')
         self.category = np.array(h5_file['category'], dtype=bool)
-        self.category_names = np.array(h5_file['category_names'], dtype=str)
-        self.images = np.array(h5_file['images'], dtype=np.float64)
+        self.category_names = np.array(h5_file['category_names']).astype(str)
+        self.images = np.array(h5_file['images'], dtype=np.float32)
         h5_file.close()
 
 
@@ -37,11 +37,11 @@ class FoodH5Dataset(torch.utils.data.Dataset):
         category_name = self.category_names[self.category[index]]
         category_idx = np.where(self.category_names == category_name)[0]
 
-        X = torch.from_numpy(image).long()
-        y = torch.from_numpy(category_idx).long()
+        X = torch.from_numpy(image).float() # float32
+        y = torch.from_numpy(category_idx).long() # int64
 
         if self.transform:
-            X = self.transform(X)
+            X, y = self.transform(X, y)
 
         return (X, y)
     

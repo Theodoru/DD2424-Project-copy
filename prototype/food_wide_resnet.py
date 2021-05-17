@@ -25,12 +25,8 @@ def train(data_loader, model, loss_fn, optimizer):
     for batch, (X, y) in enumerate(data_loader):
         X, y = X.to(DEVICE), y.to(DEVICE)
 
-        print(X.dtype)
-        print(y.dtype)
-
         # Compute prediction error
         pred = model(X)
-        print(f"what is this?: {y}, {pred}")
         loss = loss_fn(pred, y.flatten())
 
         # Backpropagation
@@ -51,18 +47,17 @@ def test(data_loader, model, loss_fn):
         for X, y in data_loader:
             X, y = X.to(DEVICE), y.to(DEVICE)
             pred = model(X)
-            print(f"what is this?: {y}")
-            test_loss += loss_fn(pred, y).item()
+            test_loss += loss_fn(pred, y.flatten()).item()
             correct += (pred.argmax(1) == y).type(torch.float).sum().item()
     test_loss /= size
     correct /= size
     print(f"Test Error: \n Accuracy: {(100*correct):>0.1f}%, Avg loss: {test_loss:>8f} \n")
 
 
-def preprocess(X):
+def preprocess(X, y):
+    # The 'pytorch/vision:v0.9.0' model expects data in shape (C x H x W)
     X = torch.reshape(X, [3, 32, 32])
-    X = X.type(torch.LongTensor)
-    return X 
+    return (X, y)
 
 
 def main():
@@ -89,7 +84,6 @@ def main():
     # Model
     model = torch.hub.load('pytorch/vision:v0.9.0', MODEL_ARCHITECTURE, pretrained=False)
     model.to(DEVICE)
-    print(model)
 
     # Load previous model state if it exists
     state_path = "state/" + MODEL_ARCHITECTURE
