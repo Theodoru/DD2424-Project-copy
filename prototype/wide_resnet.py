@@ -21,6 +21,8 @@ def train(data_loader, model, loss_fn, optimizer):
     for batch, (X, y) in enumerate(data_loader):
         X, y = X.to(DEVICE), y.to(DEVICE)
 
+        print(f"train(): X type | dtype: {type(X)} | {X.dtype}, y type | dtype: {type(y)} | {y.dtype}")
+
         # Compute prediction error
         pred = model(X)
         loss = loss_fn(pred, y)
@@ -56,8 +58,9 @@ def main():
         os.mkdir("state")
 
     # Clear CUDA cache
-    torch.cuda.empty_cache()
-    print(torch.cuda.memory_summary(device=None, abbreviated=False))
+    if DEVICE == "cuda":
+        torch.cuda.empty_cache()
+        print(torch.cuda.memory_summary(device=None, abbreviated=False))
 
     # Datasets
     preprocess = Compose([

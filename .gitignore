@@ -141,6 +141,7 @@ cython_debug/
 data/images
 data/meta
 data/food*
+data/cifar*
 
 # state folder
 state
