@@ -2,7 +2,9 @@
 
 ## Authors
 Felix Gudéhn (fgudehn@kth.se)
+
 Mazen Mardini (mazenm@kth.se)
+
 Theodor Uhmeier (theodoru@kth.se)
 
 ## Resources
