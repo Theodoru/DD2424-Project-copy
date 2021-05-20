@@ -148,3 +148,6 @@ state
 
 # vscode folder
 .vscode
+
+# PyCharm folder
+.idea

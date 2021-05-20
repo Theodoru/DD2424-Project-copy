@@ -7,12 +7,15 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from torchvision import datasets
 from torchvision.transforms import ToTensor, Compose, Resize, CenterCrop, Normalize
-from torchvision.models.resnet import BasicBlock, Bottleneck
+from torchvision.models.resnet import BasicBlock, conv1x1
 
 
 # Configuration
 BATCH_SIZE = 16
 EPOCHS = 100
+LR = 0.1                # From Wide Resnet paper
+MOMENTUM = 0.9          # From Wide Resnet paper
+WEIGHT_DECAY = 0.0005   # From Wide Resnet paper
 MODEL_ARCHITECTURE = 'wide_resnet50_2'
 ###############
 
@@ -25,36 +28,66 @@ class Model(nn.Module):
                  num_classes: int = 100):
         super(Model, self).__init__()
 
-        self.inplanes = 32  # Why 32?
+        self.depth = 28
+        assert (self.depth - 4) % 6 == 0, 'depth should be 6n+4'
+        group_blocks = (self.depth - 4) // 6
+        self.width = 10
+        widths = [int(v * self.width) for v in (16, 32, 64)]
 
-        self.conv1 = nn.Conv2d(3, self.inplanes, kernel_size=7, stride=2, padding=3,
+        self.inplanes = 64  # filters
+        #self.dilation = 1
+
+        self.conv1 = nn.Conv2d(3, self.inplanes, kernel_size=3, stride=1, padding=3,
                                bias=False)
+        self.bn = nn.BatchNorm2d(self.inplanes)
 
         # FIXME: Layers should be defined here:
-        # self.block1 = BasicBlock(self.inplanes, planes=32, stride=1)
-
-        self.bn = nn.BatchNorm2d(self.inplanes)
+        self.layer1 = self._make_layer(widths[0], group_blocks)
+        self.layer2 = self._make_layer(widths[1], group_blocks, stride=2)
+        self.layer3 = self._make_layer(widths[2], group_blocks, stride=2)
 
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
         self.avgpool = nn.AdaptiveAvgPool2d(output_size=(1, 1))
 
-        self.fc = nn.Linear(32*32, num_classes)
+        self.fc = nn.Linear(widths[2], num_classes)
+
+    def _make_layer(self, planes: int, blocks:int, stride: int = 1):
+        if stride != 1 or self.inplanes != planes:
+            downsample = nn.Sequential(
+                conv1x1(self.inplanes, planes, stride),
+                nn.BatchNorm2d(planes),
+            )
+        else:
+            downsample = None
+
+        layers = []
+        layers.append(BasicBlock(self.inplanes, planes=planes, downsample=downsample,
+                                 stride=stride))
+        self.inplanes = planes
+        for _ in range(1, blocks):
+            layers.append(BasicBlock(self.inplanes, planes=planes))
+
+        return nn.Sequential(*layers)
 
     def forward(self, x: Tensor) -> Tensor:
-        # x = self.conv1(x)  # What's the point of this first convolution?
-        #x = self.bn(x)  # Batch normalization
-        #x = self.relu(x)  # Why ReLu here?
-        #x = self.maxpool(x)  # Why maxpool here?
+        x = self.conv1(x)  # What's the point of this first convolution?
+        x = self.bn(x)  # Batch normalization
+        x = F.relu(x, inplace=True)  # Why ReLu here?
+        x = self.maxpool(x)  # Why maxpool here?
 
-        # x = self.block1(x)  # FIXME: Remove this and add layers.
-        #x = self.layer1(x)
-        #x = self.layer2(x)
-        #x = self.layer3(x)
-        #x = self.layer4(x)
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x = self.layer3(x)
 
-        #x = self.avgpool(x)  # Why avgpool here?
-        #x = torch.flatten(x, 1)  # Puts all features in x in a vector.
-        #x = self.fc(x)  # Linear layer to acquire class-probabilities.
+        # x: (
+        # BATCH_SIZE,
+        # self.inplanes,
+        # floor(((32 + 2*3 - 1*(7-1) - 1) / 2) + 1),
+        # floor(((32 + 2*3 - 1*(7-1) - 1) / 2) + 1)
+        # )
+        x = self.avgpool(x)  # Why avgpool here?
+        x = torch.flatten(x, 1)  # Puts all features in x in a vector.
+        x = self.fc(x)  # Linear layer to acquire class-probabilities.
 
         return x
 
@@ -64,7 +97,7 @@ def train(data_loader, model, loss_fn, optimizer):
     for batch, (X, y) in enumerate(data_loader):
         X, y = X.to(DEVICE), y.to(DEVICE)
 
-        print(f"train(): X type | dtype: {type(X)} | {X.dtype}, y type | dtype: {type(y)} | {y.dtype}")
+        # print(f"train(): X type | dtype: {type(X)} | {X.dtype}, y type | dtype: {type(y)} | {y.dtype}")
 
         # Compute prediction error
         pred = model(X)
@@ -137,20 +170,21 @@ def main():
     print(model)
 
     # Load previous model state if it exists
-    state_path = "state/" + MODEL_ARCHITECTURE
-    if os.path.exists(state_path):
-        model.load_state_dict(torch.load(state_path))
+    #state_path = "state/" + MODEL_ARCHITECTURE
+    #if os.path.exists(state_path):
+    #    model.load_state_dict(torch.load(state_path))
 
     # Loss function
     loss_fn = nn.CrossEntropyLoss()
 
     # Optimizer (Stochastic Gradient Descent)
-    optimizer = torch.optim.SGD(model.parameters(), lr=1e-3)
+    optimizer = torch.optim.SGD(model.parameters(), lr=LR, momentum=MOMENTUM,
+                                weight_decay=WEIGHT_DECAY)
 
     for t in range(EPOCHS):
         print(f"Epoch {t+1}\n-------------------------------")
         train(train_data_loader, model, loss_fn, optimizer)
-        torch.save(model.state_dict(), state_path)
+    #    torch.save(model.state_dict(), state_path)
         test(test_data_loader, model, loss_fn)
 
 

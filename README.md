@@ -2,6 +2,8 @@
 
 ## Authors
 Felix Gudéhn (fgudehn@kth.se)
+Mazen Mardini (mazenm@kth.se)
+Theodor Uhmeier (Theodor, vad är ditt KTH email?)
 
 ## Resources
 - [PyTorch](https://pytorch.org/)
