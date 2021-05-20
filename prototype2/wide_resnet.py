@@ -11,12 +11,13 @@ from torchvision.models.resnet import BasicBlock, conv1x1
 
 
 # Configuration
-BATCH_SIZE = 16
+BATCH_SIZE = 64
 EPOCHS = 100
 LR = 0.1                # From Wide Resnet paper
 MOMENTUM = 0.9          # From Wide Resnet paper
 WEIGHT_DECAY = 0.0005   # From Wide Resnet paper
-MODEL_ARCHITECTURE = 'wide_resnet50_2'
+DEPTH = 16
+WIDTH = 8
 ###############
 
 
@@ -25,31 +26,34 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 class Model(nn.Module):
     def __init__(self,
+                 depth: int,
+                 width: int,
                  num_classes: int = 100):
         super(Model, self).__init__()
 
-        self.depth = 28
+        # Code borrowed from:
+        # https://github.com/szagoruyko/wide-residual-networks/blob/master/pytorch/resnet.py
+        self.depth = depth
         assert (self.depth - 4) % 6 == 0, 'depth should be 6n+4'
         group_blocks = (self.depth - 4) // 6
-        self.width = 10
-        widths = [int(v * self.width) for v in (16, 32, 64)]
+        self.widths = [int(v * width) for v in (16, 32, 64)]
 
         self.inplanes = 64  # filters
         #self.dilation = 1
 
-        self.conv1 = nn.Conv2d(3, self.inplanes, kernel_size=3, stride=1, padding=3,
+        self.conv1 = nn.Conv2d(3, self.inplanes, kernel_size=7, stride=2, padding=3,
                                bias=False)
         self.bn = nn.BatchNorm2d(self.inplanes)
 
         # FIXME: Layers should be defined here:
-        self.layer1 = self._make_layer(widths[0], group_blocks)
-        self.layer2 = self._make_layer(widths[1], group_blocks, stride=2)
-        self.layer3 = self._make_layer(widths[2], group_blocks, stride=2)
+        self.layer1 = self._make_layer(self.widths[0], group_blocks)
+        self.layer2 = self._make_layer(self.widths[1], group_blocks, stride=2)
+        self.layer3 = self._make_layer(self.widths[2], group_blocks, stride=2)
 
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
         self.avgpool = nn.AdaptiveAvgPool2d(output_size=(1, 1))
 
-        self.fc = nn.Linear(widths[2], num_classes)
+        self.fc = nn.Linear(self.widths[2], num_classes)
 
     def _make_layer(self, planes: int, blocks:int, stride: int = 1):
         if stride != 1 or self.inplanes != planes:
@@ -165,7 +169,7 @@ def main():
 
     # Model
     # model = torch.hub.load('pytorch/vision:v0.9.0', MODEL_ARCHITECTURE, pretrained=False)
-    model = Model(num_classes=len(training_data.classes))
+    model = Model(DEPTH, WIDTH, num_classes=len(training_data.classes))
     model.to(DEVICE)
     print(model)
 
