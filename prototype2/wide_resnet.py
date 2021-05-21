@@ -131,7 +131,8 @@ DEFAULT_CONFIG = {
     "weight_decay": 0.0005,
     "depth": 16,
     "width": 8,
-    "dataset": "cifar100"
+    "dataset": "cifar100",
+    "image_size": 32,
 }
 
 
@@ -160,17 +161,16 @@ def main(config):
         print(torch.cuda.memory_summary(device=None, abbreviated=False))
 
     # Datasets
-    preprocess = Compose([
-        # Resize(256),
-        # CenterCrop(224),
-        ToTensor(),
-        Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),  # FIXME: Varför just dessa värden?????
-    ])
-
     if config["dataset"] == "food101":
-        training_data = create_dataset(True)
-        test_data = create_dataset(False)
+        training_data = create_dataset(True, config["image_size"])
+        test_data = create_dataset(False, config["image_size"])
     else:
+        preprocess = Compose([
+            Resize(min(config["image_size"], 32)),
+            ToTensor(),
+            Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),  # FIXME: Varför just dessa värden?????
+        ])
+
         training_data = datasets.CIFAR100(
             root="data",
             train=True,
@@ -195,9 +195,9 @@ def main(config):
     print(model)
 
     # Load previous model state if it exists
-    #state_path = "state/" + MODEL_ARCHITECTURE
-    #if os.path.exists(state_path):
-    #    model.load_state_dict(torch.load(state_path))
+    state_path = "state/" + config["dataset"] + "_" + str(config["image_size"])
+    if os.path.exists(state_path):
+        model.load_state_dict(torch.load(state_path))
 
     # Loss function
     loss_fn = nn.CrossEntropyLoss()
@@ -209,7 +209,7 @@ def main(config):
     for t in range(config["epochs"]):
         print(f"Epoch {t+1}\n-------------------------------")
         train(train_data_loader, model, loss_fn, optimizer)
-    #    torch.save(model.state_dict(), state_path)
+        torch.save(model.state_dict(), state_path)
         test(test_data_loader, model, loss_fn)
 
 
