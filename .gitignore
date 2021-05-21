@@ -142,6 +142,7 @@ data/images
 data/meta
 data/food*
 data/cifar*
+data
 
 # state folder
 state
