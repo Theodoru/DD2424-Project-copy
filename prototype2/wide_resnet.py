@@ -9,6 +9,7 @@ from torch.utils.data import DataLoader
 from torchvision import datasets
 from torchvision.transforms import ToTensor, Compose, Resize, CenterCrop, Normalize
 from torchvision.models.resnet import BasicBlock, conv1x1
+from loaddata import create_dataset
 
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
@@ -122,21 +123,25 @@ def test(data_loader, model, loss_fn):
     print(f"Test Error: \n Accuracy: {(100*correct):>0.1f}%, Avg loss: {test_loss:>8f} \n")
 
 
+DEFAULT_CONFIG = {
+    "batch_size": 64,
+    "epochs": 100,
+    "lr": 0.1,
+    "momentum": 0.9,
+    "weight_decay": 0.0005,
+    "depth": 16,
+    "width": 8,
+    "dataset": "cifar100"
+}
+
+
 def load_config(config_path):
     if not os.path.exists(config_path):
         # Default values
-        return {
-            "batch_size": 64,
-            "epochs": 100,
-            "lr": 0.1,
-            "momentum": 0.9,
-            "weight_decay": 0.0005,
-            "depth": 16,
-            "width": 8
-        }
+        return DEFAULT_CONFIG
 
     with open(config_path, "r") as f:
-        return json.load(f)
+        return {**DEFAULT_CONFIG, **json.load(f)}
 
 
 def save_config(config_path, config):
@@ -162,18 +167,22 @@ def main(config):
         Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),  # FIXME: Varför just dessa värden?????
     ])
 
-    training_data = datasets.CIFAR100(
-        root="data",
-        train=True,
-        download=True,
-        transform=preprocess
-    )
-    test_data = datasets.CIFAR100(
-        root="data",
-        train=False,
-        download=True,
-        transform=preprocess,
-    )
+    if config["dataset"] == "food101":
+        training_data = create_dataset(True)
+        test_data = create_dataset(False)
+    else:
+        training_data = datasets.CIFAR100(
+            root="data",
+            train=True,
+            download=True,
+            transform=preprocess
+        )
+        test_data = datasets.CIFAR100(
+            root="data",
+            train=False,
+            download=True,
+            transform=preprocess,
+        )
 
     # Data loaders
     train_data_loader = DataLoader(training_data, batch_size=config["batch_size"])
