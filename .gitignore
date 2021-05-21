@@ -151,3 +151,6 @@ state
 
 # PyCharm folder
 .idea
+
+# Config file
+config.json

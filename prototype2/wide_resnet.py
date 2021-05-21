@@ -1,4 +1,5 @@
 import os
+import json
 
 import torch
 from torch import nn
@@ -10,17 +11,6 @@ from torchvision.transforms import ToTensor, Compose, Resize, CenterCrop, Normal
 from torchvision.models.resnet import BasicBlock, conv1x1
 
 
-# Configuration
-BATCH_SIZE = 64
-EPOCHS = 100
-LR = 0.1                # From Wide Resnet paper
-MOMENTUM = 0.9          # From Wide Resnet paper
-WEIGHT_DECAY = 0.0005   # From Wide Resnet paper
-DEPTH = 16
-WIDTH = 8
-###############
-
-
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 
@@ -28,7 +18,7 @@ class Model(nn.Module):
     def __init__(self,
                  depth: int,
                  width: int,
-                 num_classes: int = 100):
+                 num_classes: int):
         super(Model, self).__init__()
 
         # Code borrowed from:
@@ -55,7 +45,7 @@ class Model(nn.Module):
 
         self.fc = nn.Linear(self.widths[2], num_classes)
 
-    def _make_layer(self, planes: int, blocks:int, stride: int = 1):
+    def _make_layer(self, planes: int, blocks: int, stride: int = 1):
         if stride != 1 or self.inplanes != planes:
             downsample = nn.Sequential(
                 conv1x1(self.inplanes, planes, stride),
@@ -132,7 +122,29 @@ def test(data_loader, model, loss_fn):
     print(f"Test Error: \n Accuracy: {(100*correct):>0.1f}%, Avg loss: {test_loss:>8f} \n")
 
 
-def main():
+def load_config(config_path):
+    if not os.path.exists(config_path):
+        # Default values
+        return {
+            "batch_size": 64,
+            "epochs": 100,
+            "lr": 0.1,
+            "momentum": 0.9,
+            "weight_decay": 0.0005,
+            "depth": 16,
+            "width": 8
+        }
+
+    with open(config_path, "r") as f:
+        return json.load(f)
+
+
+def save_config(config_path, config):
+    with open(config_path, "w") as f:
+        return json.dump(config, f, indent=4, sort_keys=True)
+
+
+def main(config):
     # Create model state directory
     if not os.path.isdir("state"):
         os.mkdir("state")
@@ -164,12 +176,12 @@ def main():
     )
 
     # Data loaders
-    train_data_loader = DataLoader(training_data, batch_size=BATCH_SIZE)
-    test_data_loader = DataLoader(test_data, batch_size=BATCH_SIZE)
+    train_data_loader = DataLoader(training_data, batch_size=config["batch_size"])
+    test_data_loader = DataLoader(test_data, batch_size=config["batch_size"])
 
     # Model
     # model = torch.hub.load('pytorch/vision:v0.9.0', MODEL_ARCHITECTURE, pretrained=False)
-    model = Model(DEPTH, WIDTH, num_classes=len(training_data.classes))
+    model = Model(config["depth"], config["width"], num_classes=len(training_data.classes))
     model.to(DEVICE)
     print(model)
 
@@ -182,10 +194,10 @@ def main():
     loss_fn = nn.CrossEntropyLoss()
 
     # Optimizer (Stochastic Gradient Descent)
-    optimizer = torch.optim.SGD(model.parameters(), lr=LR, momentum=MOMENTUM,
-                                weight_decay=WEIGHT_DECAY)
+    optimizer = torch.optim.SGD(model.parameters(), lr=config["lr"], momentum=config["momentum"],
+                                weight_decay=config["weight_decay"])
 
-    for t in range(EPOCHS):
+    for t in range(config["epochs"]):
         print(f"Epoch {t+1}\n-------------------------------")
         train(train_data_loader, model, loss_fn, optimizer)
     #    torch.save(model.state_dict(), state_path)
@@ -193,10 +205,18 @@ def main():
 
 
 if __name__ == "__main__":
+    # Load configuration
+    config = load_config("config.json")
+
     try:
-        main()
+        main(config)
     except RuntimeError as error:
         print(torch.cuda.memory_summary(device=None, abbreviated=False))
+        # Save configuration
+        save_config("config.json", config)
         raise error
     except KeyboardInterrupt:
         print("Interrupted by user.")
+
+    # Save configuration
+    save_config("config.json", config)
