@@ -171,8 +171,8 @@ def main(config):
         transform = Compose([
             Resize((config["image_size"], config["image_size"])),
             ToTensor(),
-            Normalize(np.array([125.3, 123.0, 113.9]) / 255.0,  ## Change normalization???
-                      np.array([63.0, 62.1, 66.7]) / 255.0),  ## Change normalization???
+            Normalize((0.486, 0.456, 0.406),  ## Change normalization???
+                      (0.229, 0.224, 0.225)),  ## Change normalization???
         ])
 
         training_data = datasets.ImageFolder(root=TRAIN_DIR, transform=transform)
@@ -206,8 +206,7 @@ def main(config):
     # Model
     # model = torch.hub.load('pytorch/vision:v0.9.0', MODEL_ARCHITECTURE, pretrained=False)
     model = Model(config["depth"], config["width"], num_classes=len(training_data.classes))
-    model = model.to(memory_format=torch.channels_last)
-    model = model.to(DEVICE)
+    model = model.to(device=DEVICE, memory_format=torch.channels_last)
     print(model)
 
     # Load previous model state if it exists
@@ -222,7 +221,7 @@ def main(config):
 
     # Optimizer (Stochastic Gradient Descent)
     optimizer = torch.optim.SGD(model.parameters(), lr=config["lr"], momentum=config["momentum"],
-                                weight_decay=config["weight_decay"])
+                                weight_decay=config["weight_decay"], dampening=0)
 
     # PyTorch optimization
     torch.backends.cudnn.benchmark = True
