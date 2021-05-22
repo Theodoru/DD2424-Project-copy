@@ -1,5 +1,7 @@
 import os
 import json
+import time
+import datetime
 
 import numpy as np
 import torch
@@ -124,7 +126,7 @@ def test(data_loader, model, loss_fn):
             correct += (pred.argmax(1) == y).type(torch.float).sum().item()
     test_loss /= size
     correct /= size
-    print(f"Test Error: \n Accuracy: {(100*correct):>0.1f}%, Avg loss: {test_loss:>8f} \n")
+    print(f"Test Error: \n Accuracy: {(100*correct):>0.1f}%, Avg loss: {test_loss:>8f}")
 
 
 DEFAULT_CONFIG = {
@@ -222,12 +224,25 @@ def main(config):
     optimizer = torch.optim.SGD(model.parameters(), lr=config["lr"], momentum=config["momentum"],
                                 weight_decay=config["weight_decay"])
 
+    # PyTorch optimization
     torch.backends.cudnn.benchmark = True
+
+    epoch_benchmark = []
+
     for t in range(config["epochs"]):
         print(f"Epoch {t+1}\n-------------------------------")
+        start_time = time.perf_counter()
         train(train_data_loader, model, loss_fn, optimizer)
         torch.save(model.state_dict(), state_path)
         test(test_data_loader, model, loss_fn)
+        end_time = time.perf_counter()
+
+        runtime = end_time-start_time
+        epoch_benchmark.append(runtime)
+        print("Epoch runtime:", datetime.timedelta(seconds=runtime))
+        print("Estimate finishing time:",
+              datetime.datetime.now() + datetime.timedelta(seconds=np.average(epoch_benchmark)*(config["epochs"]-t-1)))
+        print()
 
 
 if __name__ == "__main__":
