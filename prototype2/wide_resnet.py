@@ -240,7 +240,7 @@ def main(config):
         runtime = end_time-start_time
         epoch_benchmark.append(runtime)
         print("Epoch runtime:", datetime.timedelta(seconds=runtime))
-        print("Estimate finishing time:",
+        print("Estimated finishing time:",
               datetime.datetime.now() + datetime.timedelta(seconds=np.average(epoch_benchmark)*(config["epochs"]-t-1)))
         print()
 
