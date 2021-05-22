@@ -1,6 +1,7 @@
 import os
 import json
 
+import numpy as np
 import torch
 from torch import nn
 from torch import Tensor
@@ -9,8 +10,10 @@ from torch.utils.data import DataLoader
 from torchvision import datasets
 from torchvision.transforms import ToTensor, Compose, Resize, CenterCrop, Normalize
 from torchvision.models.resnet import BasicBlock, conv1x1
-from loaddata import create_dataset
 
+
+TEST_DIR = "data/images/test"
+TRAIN_DIR = "data/images/train"
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -32,11 +35,12 @@ class Model(nn.Module):
         self.inplanes = 64  # filters
         #self.dilation = 1
 
+        # Bias is False, because it is not needed when Conv2d followed by a BatchNorm, see:
+        # https://pytorch.org/tutorials/recipes/recipes/tuning_guide.html
         self.conv1 = nn.Conv2d(3, self.inplanes, kernel_size=7, stride=2, padding=3,
                                bias=False)
         self.bn = nn.BatchNorm2d(self.inplanes)
 
-        # FIXME: Layers should be defined here:
         self.layer1 = self._make_layer(self.widths[0], group_blocks)
         self.layer2 = self._make_layer(self.widths[1], group_blocks, stride=2)
         self.layer3 = self._make_layer(self.widths[2], group_blocks, stride=2)
@@ -99,7 +103,7 @@ def train(data_loader, model, loss_fn, optimizer):
         loss = loss_fn(pred, y)
 
         # Backpropagation
-        optimizer.zero_grad()
+        optimizer.zero_grad(set_to_none=True)
         loss.backward()
         optimizer.step()
 
@@ -162,13 +166,20 @@ def main(config):
 
     # Datasets
     if config["dataset"] == "food101":
-        training_data = create_dataset(True, config["image_size"])
-        test_data = create_dataset(False, config["image_size"])
+        transform = Compose([
+            Resize((config["image_size"], config["image_size"])),
+            ToTensor(),
+            Normalize(np.array([125.3, 123.0, 113.9]) / 255.0,  ## Change normalization???
+                      np.array([63.0, 62.1, 66.7]) / 255.0),  ## Change normalization???
+        ])
+
+        training_data = datasets.ImageFolder(root=TRAIN_DIR, transform=transform)
+        test_data = datasets.ImageFolder(root=TEST_DIR, transform=transform)
     else:
         preprocess = Compose([
             Resize(min(config["image_size"], 32)),
             ToTensor(),
-            Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),  # FIXME: Varför just dessa värden?????
+            Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
         ])
 
         training_data = datasets.CIFAR100(
@@ -185,17 +196,22 @@ def main(config):
         )
 
     # Data loaders
-    train_data_loader = DataLoader(training_data, batch_size=config["batch_size"])
-    test_data_loader = DataLoader(test_data, batch_size=config["batch_size"])
+    train_data_loader = DataLoader(training_data, batch_size=config["batch_size"],
+                                   shuffle=True, pin_memory=True, num_workers=os.cpu_count())
+    test_data_loader = DataLoader(test_data, batch_size=config["batch_size"],
+                                  shuffle=True, pin_memory=True, num_workers=os.cpu_count())
 
     # Model
     # model = torch.hub.load('pytorch/vision:v0.9.0', MODEL_ARCHITECTURE, pretrained=False)
     model = Model(config["depth"], config["width"], num_classes=len(training_data.classes))
-    model.to(DEVICE)
+    model = model.to(memory_format=torch.channels_last)
+    model = model.to(DEVICE)
     print(model)
 
     # Load previous model state if it exists
-    state_path = "state/" + config["dataset"] + "_" + str(config["image_size"])
+    state_path = "state/{dataset}_{size}x{size}_wide_{depth}_{width}"\
+                 .format(dataset=config["dataset"], size=config["image_size"],
+                         depth=config["depth"], width=config["width"])
     if os.path.exists(state_path):
         model.load_state_dict(torch.load(state_path))
 
@@ -206,6 +222,7 @@ def main(config):
     optimizer = torch.optim.SGD(model.parameters(), lr=config["lr"], momentum=config["momentum"],
                                 weight_decay=config["weight_decay"])
 
+    torch.backends.cudnn.benchmark = True
     for t in range(config["epochs"]):
         print(f"Epoch {t+1}\n-------------------------------")
         train(train_data_loader, model, loss_fn, optimizer)

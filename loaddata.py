@@ -16,8 +16,8 @@ def create_dataset(train, image_size: int):
     transform = T.Compose([
         T.Resize((image_size, image_size)),
         T.ToTensor(),
-        # T.Normalize(np.array([125.3, 123.0, 113.9]) / 255.0, ## Change normalization???
-        #             np.array([63.0, 62.1, 66.7]) / 255.0), ## Change normalization???
+        T.Normalize(np.array([125.3, 123.0, 113.9]) / 255.0, ## Change normalization???
+                    np.array([63.0, 62.1, 66.7]) / 255.0), ## Change normalization???
     ])
     if train:
         """transform = T.Compose([
