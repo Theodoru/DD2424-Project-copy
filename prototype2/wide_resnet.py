@@ -10,9 +10,11 @@ from torch import Tensor
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from torchvision import datasets
-from torchvision.transforms import ToTensor, Compose, Resize, CenterCrop, Normalize
+from torchvision.transforms import ToTensor, Compose, Resize, CenterCrop, Normalize, RandomHorizontalFlip
 from torchvision.models.resnet import conv1x1, conv3x3
 from typing import Callable, Optional
+
+import matplotlib.pyplot as plt
 
 TEST_DIR = "/content/images/test"
 TRAIN_DIR = "/content/images/train"
@@ -46,12 +48,13 @@ class BasicBlock(nn.Module):
         self.conv1 = conv3x3(inplanes, planes, stride)
         self.bn2 = norm_layer(planes)
         self.relu2 = nn.ReLU(inplace=True)
+        self.dropout = nn.Dropout(0.4)
         self.conv2 = conv3x3(planes, planes)
         #Dropout?
         self.downsample = downsample
         self.stride = stride
 
-        #self.dropout = nn.Dropout(0.35)
+        
 
 
     def forward(self, x: Tensor) -> Tensor:
@@ -63,6 +66,7 @@ class BasicBlock(nn.Module):
 
         out = self.bn2(out)
         out = self.relu2(out)
+        out = self.dropout(out)
         out = self.conv2(out)
 
 
@@ -147,7 +151,9 @@ class Model(nn.Module):
 
 
 def train(data_loader, model, loss_fn, optimizer):
+    model.train()
     size = len(data_loader.dataset)
+    losses = []
     for batch, (X, y) in enumerate(data_loader):
         X, y = X.to(DEVICE), y.to(DEVICE)
 
@@ -164,12 +170,15 @@ def train(data_loader, model, loss_fn, optimizer):
 
         if batch % 100 == 0:
             loss, current = loss.item(), batch * len(X)
+            losses.append(loss)
             print(f"loss: {loss:>7f}  [{current:>5d}/{size:>5d}]")
+
+    return sum(losses) / len(losses)
 
 
 def test(data_loader, model, loss_fn):
-    size = len(data_loader.dataset)
     model.eval()
+    size = len(data_loader.dataset)
     test_loss, correct = 0, 0
     with torch.no_grad():
         for X, y in data_loader:
@@ -180,6 +189,7 @@ def test(data_loader, model, loss_fn):
     test_loss /= size
     correct /= size
     print(f"Test Error: \n Accuracy: {(100*correct):>0.1f}%, Avg loss: {test_loss:>8f}")
+    return correct
 
 
 DEFAULT_CONFIG = {
@@ -209,8 +219,67 @@ def save_config(config_path, config):
         return json.dump(config, f, indent=4, sort_keys=True)
 
 
+def load_epoch_runs(epoch_runs_path):
+    if not os.path.exists(epoch_runs_path):
+        # Default
+        return []
+
+    epoch_runs = []
+    with open(epoch_runs_path, "r") as f:
+        for line in f:
+            epoch_runs.append(json.loads(line))
+
+    return epoch_runs
+
+
+def save_epoch_runs(epoch_runs_path, epoch_runs):
+    with open(epoch_runs_path, "w") as f:
+        for epoch_run in epoch_runs:
+            f.write(json.dumps(epoch_run) + "\n")
+
+
+def plot_loss(plot_path, epoch_runs, title=None):
+    epoch_ids = [epoch_run["epoch_id"] for epoch_run in epoch_runs]
+    losses = [epoch_run["avg_loss"] for epoch_run in epoch_runs]
+
+    fig, ax = plt.subplots()
+    ax.plot(epoch_ids, losses)
+
+    ax.set(xlabel='Epoch', ylabel='Average loss', title=title if title else "Average loss during each epoch")
+    ax.grid()
+
+    fig.savefig(plot_path)
+    plt.close()
+
+
+def plot_runtime(plot_path, epoch_runs, title=None):
+    epoch_ids = [epoch_run["epoch_id"] for epoch_run in epoch_runs]
+    runtimes = [epoch_run["runtime"] for epoch_run in epoch_runs]
+
+    fig, ax = plt.subplots()
+    ax.plot(epoch_ids, runtimes)
+
+    ax.set(xlabel='Epoch', ylabel='Runtime (s)', title=title if title else "Runtime for each epoch")
+    ax.grid()
+
+    fig.savefig(plot_path)
+    plt.close()
+
+def plot_test_accuracy(plot_path, epoch_runs, title=None):
+    epoch_ids = [epoch_run["epoch_id"] for epoch_run in epoch_runs]
+    accuracies = [epoch_run["test_accuracy"] for epoch_run in epoch_runs]
+
+    fig, ax = plt.subplots()
+    ax.plot(epoch_ids, accuracies)
+
+    ax.set(xlabel='Epoch', ylabel='Test Accuracy', title=title if title else "Test accuracy development")
+    ax.grid()
+
+    fig.savefig(plot_path)
+    plt.close()
+
 def main(config):
-    # Create model state directory
+    # Create model state directories
     if not os.path.isdir("state"):
         os.mkdir("state")
 
@@ -221,15 +290,19 @@ def main(config):
 
     # Datasets
     if config["dataset"] == "food101":
-        transform = Compose([
+        testtransform = Compose([
             Resize((config["image_size"], config["image_size"])),
             ToTensor(),
             Normalize((0.486, 0.456, 0.406),  ## Change normalization???
                       (0.229, 0.224, 0.225)),  ## Change normalization???
         ])
+        traintransform = Compose([
+            #RandomHorizontalFlip(),
+            testtransform,
+        ])
 
-        training_data = datasets.ImageFolder(root=TRAIN_DIR, transform=transform)
-        test_data = datasets.ImageFolder(root=TEST_DIR, transform=transform)
+        training_data = datasets.ImageFolder(root=TRAIN_DIR, transform=traintransform)
+        test_data = datasets.ImageFolder(root=TEST_DIR, transform=testtransform)
     else:
         preprocess = Compose([
             Resize(min(config["image_size"], 32)),
@@ -267,7 +340,17 @@ def main(config):
                  .format(dataset=config["dataset"], size=config["image_size"],
                          depth=config["depth"], width=config["width"])
     if os.path.exists(state_path):
-        model.load_state_dict(torch.load(state_path))
+        if os.path.exists(state_path + "/last_model"):
+            model.load_state_dict(torch.load(state_path + "/last_model"))
+
+        if os.path.exists(state_path + "/best_model"):
+            print('loaded best')
+            model.load_state_dict(torch.load(state_path + "/best_model"))
+
+        epoch_runs = load_epoch_runs(state_path + "/epoch_runs.jl")
+    else:
+        os.mkdir(state_path)
+        epoch_runs = []
 
     # Loss function
     loss_fn = nn.CrossEntropyLoss()
@@ -281,20 +364,41 @@ def main(config):
 
     epoch_benchmark = []
 
-    for t in range(config["epochs"]):
-        print(f"Epoch {t+1}\n-------------------------------")
-        start_time = time.perf_counter()
-        train(train_data_loader, model, loss_fn, optimizer)
-        torch.save(model.state_dict(), state_path)
-        test(test_data_loader, model, loss_fn)
-        end_time = time.perf_counter()
+    with open(state_path + "/epoch_runs.jl", "a") as f:
+        best_accuracy = max((epoch_run["test_accuracy"] for epoch_run in epoch_runs), default=0)
+        first_id = max((epoch_run["epoch_id"] for epoch_run in epoch_runs), default=0) + 1
 
-        runtime = end_time-start_time
-        epoch_benchmark.append(runtime)
-        print("Epoch runtime:", datetime.timedelta(seconds=runtime))
-        print("Estimated finishing time:",
-              datetime.datetime.now() + datetime.timedelta(seconds=np.average(epoch_benchmark)*(config["epochs"]-t-1)))
-        print()
+        for t, epoch_id in enumerate(range(first_id, first_id + config["epochs"])):
+            print(f"Epoch {epoch_id}\n-------------------------------")
+            print('Training? ', model.training)
+            start_time = time.perf_counter()
+            avg_loss = train(train_data_loader, model, loss_fn, optimizer)
+            torch.save(model.state_dict(), state_path + "/last_model")
+            accuracy = test(test_data_loader, model, loss_fn)
+
+            if accuracy > best_accuracy:
+                torch.save(model.state_dict(), state_path + "/best_model")
+
+            end_time = time.perf_counter()
+            runtime = end_time-start_time
+
+            epoch_run = {"epoch_id": epoch_id, "avg_loss": avg_loss, "test_accuracy": accuracy,
+                         "runtime": runtime, "config": config}
+            epoch_runs.append(epoch_run)
+            f.write(json.dumps(epoch_run) + "\n")
+            f.flush()
+
+            # Plot
+            plot_loss(state_path + "/plot_avg_loss.png", epoch_runs)
+            plot_runtime(state_path + "/plot_runtime.png", epoch_runs)
+            plot_test_accuracy(state_path + "/plot_test_accuracy.png", epoch_runs)
+
+            epoch_benchmark.append(runtime)
+            print("Epoch runtime:", datetime.timedelta(seconds=runtime))
+            print("Estimated finishing time:",
+                  datetime.datetime.now() +
+                  datetime.timedelta(seconds=np.average(epoch_benchmark)*(config["epochs"]-t-1)))
+            print()
 
 
 if __name__ == "__main__":

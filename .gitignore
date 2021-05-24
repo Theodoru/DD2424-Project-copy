@@ -156,6 +156,12 @@ state
 # Config file
 config.json
 
+<<<<<<< HEAD
 
 #Theo's addition
+=======
+# output folder
+outputs/*.png
+
+*.zip
 .DS_Store
