@@ -12,6 +12,7 @@ from torch.utils.data import DataLoader
 from torchvision import datasets
 from torchvision.transforms import ToTensor, Compose, Resize, CenterCrop, Normalize
 from torchvision.models.resnet import BasicBlock, conv1x1
+import matplotlib.pyplot as plt
 
 
 TEST_DIR = "data/images/test"
@@ -180,6 +181,45 @@ def save_epoch_runs(epoch_runs_path, epoch_runs):
             f.write(json.dumps(epoch_run) + "\n")
 
 
+def plot_loss(plot_path, epoch_runs, title=None):
+    epoch_ids = [epoch_run["epoch_id"] for epoch_run in epoch_runs]
+    losses = [epoch_run["avg_loss"] for epoch_run in epoch_runs]
+
+    fig, ax = plt.subplots()
+    ax.plot(epoch_ids, losses)
+
+    ax.set(xlabel='Epoch', ylabel='Average loss', title=title if title else "Average loss during each epoch")
+    ax.grid()
+
+    fig.savefig(plot_path)
+
+
+def plot_runtime(plot_path, epoch_runs, title=None):
+    epoch_ids = [epoch_run["epoch_id"] for epoch_run in epoch_runs]
+    runtimes = [epoch_run["runtime"] for epoch_run in epoch_runs]
+
+    fig, ax = plt.subplots()
+    ax.plot(epoch_ids, runtimes)
+
+    ax.set(xlabel='Epoch', ylabel='Runtime (s)', title=title if title else "Runtime for each epoch")
+    ax.grid()
+
+    fig.savefig(plot_path)
+
+
+def plot_test_accuracy(plot_path, epoch_runs, title=None):
+    epoch_ids = [epoch_run["epoch_id"] for epoch_run in epoch_runs]
+    accuracies = [epoch_run["test_accuracy"] for epoch_run in epoch_runs]
+
+    fig, ax = plt.subplots()
+    ax.plot(epoch_ids, accuracies)
+
+    ax.set(xlabel='Epoch', ylabel='Test Accuracy', title=title if title else "Test accuracy development")
+    ax.grid()
+
+    fig.savefig(plot_path)
+
+
 def main(config):
     # Create model state directories
     if not os.path.isdir("state"):
@@ -238,11 +278,11 @@ def main(config):
                  .format(dataset=config["dataset"], size=config["image_size"],
                          depth=config["depth"], width=config["width"])
     if os.path.exists(state_path):
-        if os.path.exists(state_path + "/last"):
-            model.load_state_dict(torch.load(state_path + "/last"))
+        if os.path.exists(state_path + "/last_model"):
+            model.load_state_dict(torch.load(state_path + "/last_model"))
 
-        if os.path.exists(state_path + "/best"):
-            model.load_state_dict(torch.load(state_path + "/best"))
+        if os.path.exists(state_path + "/best_model"):
+            model.load_state_dict(torch.load(state_path + "/best_model"))
 
         epoch_runs = load_epoch_runs(state_path + "/epoch_runs.jl")
     else:
@@ -263,24 +303,31 @@ def main(config):
 
     with open(state_path + "/epoch_runs.jl", "a") as f:
         best_accuracy = max((epoch_run["test_accuracy"] for epoch_run in epoch_runs), default=0)
+        first_id = max((epoch_run["epoch_id"] for epoch_run in epoch_runs), default=0) + 1
 
-        for t in range(config["epochs"]):
-            print(f"Epoch {t+1}\n-------------------------------")
+        for t, epoch_id in enumerate(range(first_id, first_id + config["epochs"])):
+            print(f"Epoch {epoch_id}\n-------------------------------")
             start_time = time.perf_counter()
             avg_loss = train(train_data_loader, model, loss_fn, optimizer)
-            torch.save(model.state_dict(), state_path + "/last")
+            torch.save(model.state_dict(), state_path + "/last_model")
             accuracy = test(test_data_loader, model, loss_fn)
 
             if accuracy > best_accuracy:
-                torch.save(model.state_dict(), state_path + "/best")
+                torch.save(model.state_dict(), state_path + "/best_model")
 
             end_time = time.perf_counter()
             runtime = end_time-start_time
 
-            epoch_run = {"avg_loss": avg_loss, "test_accuracy": accuracy, "runtime": runtime, "config": config}
+            epoch_run = {"epoch_id": epoch_id, "avg_loss": avg_loss, "test_accuracy": accuracy,
+                         "runtime": runtime, "config": config}
             epoch_runs.append(epoch_run)
             f.write(json.dumps(epoch_run) + "\n")
             f.flush()
+
+            # Plot
+            plot_loss(state_path + "/plot_avg_loss.png", epoch_runs)
+            plot_runtime(state_path + "/plot_runtime.png", epoch_runs)
+            plot_test_accuracy(state_path + "/plot_test_accuracy.png", epoch_runs)
 
             epoch_benchmark.append(runtime)
             print("Epoch runtime:", datetime.timedelta(seconds=runtime))
