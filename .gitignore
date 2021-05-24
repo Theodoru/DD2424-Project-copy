@@ -155,3 +155,7 @@ state
 
 # Config file
 config.json
+
+
+#Theo's addition
+.DS_Store
