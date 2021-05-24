@@ -155,3 +155,9 @@ state
 
 # Config file
 config.json
+
+# output folder
+outputs/*.png
+
+*.zip
+.DS_Store
