@@ -11,14 +11,67 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from torchvision import datasets
 from torchvision.transforms import ToTensor, Compose, Resize, CenterCrop, Normalize
-from torchvision.models.resnet import BasicBlock, conv1x1
+from torchvision.models.resnet import conv1x1, conv3x3
+from typing import Callable, Optional
 
-
-TEST_DIR = "data/images/test"
-TRAIN_DIR = "data/images/train"
+TEST_DIR = "/content/images/test"
+TRAIN_DIR = "/content/images/train"
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
+class BasicBlock(nn.Module):
+    expansion: int = 1
+
+    def __init__(
+        self,
+        inplanes: int,
+        planes: int,
+        stride: int = 1,
+        downsample: Optional[nn.Module] = None,
+        groups: int = 1,
+        base_width: int = 64,
+        dilation: int = 1,
+        norm_layer: Optional[Callable[..., nn.Module]] = None
+    ) -> None:
+        super(BasicBlock, self).__init__()
+        if norm_layer is None:
+            norm_layer = nn.BatchNorm2d
+        if groups != 1 or base_width != 64:
+            raise ValueError('BasicBlock only supports groups=1 and base_width=64')
+        if dilation > 1:
+            raise NotImplementedError("Dilation > 1 not supported in BasicBlock")
+        # Both self.conv1 and self.downsample layers downsample the input when stride != 1
+        self.bn1 = norm_layer(inplanes)
+        self.relu1 = nn.ReLU(inplace=True)
+        self.conv1 = conv3x3(inplanes, planes, stride)
+        self.bn2 = norm_layer(planes)
+        self.relu2 = nn.ReLU(inplace=True)
+        self.conv2 = conv3x3(planes, planes)
+        #Dropout?
+        self.downsample = downsample
+        self.stride = stride
+
+        #self.dropout = nn.Dropout(0.35)
+
+
+    def forward(self, x: Tensor) -> Tensor:
+        identity = x
+
+        out = self.bn1(x)
+        out = self.relu1(out)
+        out = self.conv1(out)
+
+        out = self.bn2(out)
+        out = self.relu2(out)
+        out = self.conv2(out)
+
+
+        if self.downsample is not None:
+            identity = self.downsample(x)
+
+        out += identity
+
+        return out
 
 class Model(nn.Module):
     def __init__(self,
@@ -41,13 +94,16 @@ class Model(nn.Module):
         # https://pytorch.org/tutorials/recipes/recipes/tuning_guide.html
         self.conv1 = nn.Conv2d(3, self.inplanes, kernel_size=7, stride=2, padding=3,
                                bias=False)
-        self.bn = nn.BatchNorm2d(self.inplanes)
-
+        #self.bn = nn.BatchNorm2d(self.inplanes)
+        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
+        
         self.layer1 = self._make_layer(self.widths[0], group_blocks)
         self.layer2 = self._make_layer(self.widths[1], group_blocks, stride=2)
         self.layer3 = self._make_layer(self.widths[2], group_blocks, stride=2)
 
-        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
+        self.bn = nn.BatchNorm2d(self.widths[2])
+        self.relu = nn.ReLU(inplace=True)
+        #self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
         self.avgpool = nn.AdaptiveAvgPool2d(output_size=(1, 1))
 
         self.fc = nn.Linear(self.widths[2], num_classes)
@@ -55,8 +111,9 @@ class Model(nn.Module):
     def _make_layer(self, planes: int, blocks: int, stride: int = 1):
         if stride != 1 or self.inplanes != planes:
             downsample = nn.Sequential(
+                nn.BatchNorm2d(self.inplanes),
+                nn.ReLU(inplace=True),
                 conv1x1(self.inplanes, planes, stride),
-                nn.BatchNorm2d(planes),
             )
         else:
             downsample = None
@@ -72,20 +129,16 @@ class Model(nn.Module):
 
     def forward(self, x: Tensor) -> Tensor:
         x = self.conv1(x)  # What's the point of this first convolution?
-        x = self.bn(x)  # Batch normalization
-        x = F.relu(x, inplace=True)  # Why ReLu here?
+
         x = self.maxpool(x)  # Why maxpool here?
 
         x = self.layer1(x)
         x = self.layer2(x)
         x = self.layer3(x)
 
-        # x: (
-        # BATCH_SIZE,
-        # self.inplanes,
-        # floor(((32 + 2*3 - 1*(7-1) - 1) / 2) + 1),
-        # floor(((32 + 2*3 - 1*(7-1) - 1) / 2) + 1)
-        # )
+        x = self.bn(x)
+        x = self.relu(x)  # Why ReLu here?
+
         x = self.avgpool(x)  # Why avgpool here?
         x = torch.flatten(x, 1)  # Puts all features in x in a vector.
         x = self.fc(x)  # Linear layer to acquire class-probabilities.
