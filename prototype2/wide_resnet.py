@@ -194,7 +194,7 @@ def test(data_loader, model, loss_fn):
 
 DEFAULT_CONFIG = {
     "batch_size": 128,
-    "epochs": 50,
+    "epochs": 80,
     "lr": 0.01,
     "momentum": 0.9,
     "weight_decay": 0.0005,
@@ -360,7 +360,7 @@ def main(config):
                                 weight_decay=config["weight_decay"], dampening=0)
 
     #schduler
-    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[80,120], gamma=0.1)
+    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[40,60], gamma=0.1)
 
     # PyTorch optimization
     torch.backends.cudnn.benchmark = True
