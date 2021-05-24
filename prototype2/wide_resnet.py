@@ -95,6 +95,7 @@ class Model(nn.Module):
 
 def train(data_loader, model, loss_fn, optimizer):
     size = len(data_loader.dataset)
+    losses = []
     for batch, (X, y) in enumerate(data_loader):
         X, y = X.to(DEVICE), y.to(DEVICE)
 
@@ -111,7 +112,10 @@ def train(data_loader, model, loss_fn, optimizer):
 
         if batch % 100 == 0:
             loss, current = loss.item(), batch * len(X)
+            losses.append(loss)
             print(f"loss: {loss:>7f}  [{current:>5d}/{size:>5d}]")
+
+    return sum(losses) / len(losses)
 
 
 def test(data_loader, model, loss_fn):
@@ -127,6 +131,7 @@ def test(data_loader, model, loss_fn):
     test_loss /= size
     correct /= size
     print(f"Test Error: \n Accuracy: {(100*correct):>0.1f}%, Avg loss: {test_loss:>8f}")
+    return correct
 
 
 DEFAULT_CONFIG = {
@@ -156,8 +161,27 @@ def save_config(config_path, config):
         return json.dump(config, f, indent=4, sort_keys=True)
 
 
+def load_epoch_runs(epoch_runs_path):
+    if not os.path.exists(epoch_runs_path):
+        # Default
+        return []
+
+    epoch_runs = []
+    with open(epoch_runs_path, "r") as f:
+        for line in f:
+            epoch_runs.append(json.loads(line))
+
+    return epoch_runs
+
+
+def save_epoch_runs(epoch_runs_path, epoch_runs):
+    with open(epoch_runs_path, "w") as f:
+        for epoch_run in epoch_runs:
+            f.write(json.dumps(epoch_run) + "\n")
+
+
 def main(config):
-    # Create model state directory
+    # Create model state directories
     if not os.path.isdir("state"):
         os.mkdir("state")
 
@@ -214,7 +238,16 @@ def main(config):
                  .format(dataset=config["dataset"], size=config["image_size"],
                          depth=config["depth"], width=config["width"])
     if os.path.exists(state_path):
-        model.load_state_dict(torch.load(state_path))
+        if os.path.exists(state_path + "/last"):
+            model.load_state_dict(torch.load(state_path + "/last"))
+
+        if os.path.exists(state_path + "/best"):
+            model.load_state_dict(torch.load(state_path + "/best"))
+
+        epoch_runs = load_epoch_runs(state_path + "/epoch_runs.jl")
+    else:
+        os.mkdir(state_path)
+        epoch_runs = []
 
     # Loss function
     loss_fn = nn.CrossEntropyLoss()
@@ -228,20 +261,33 @@ def main(config):
 
     epoch_benchmark = []
 
-    for t in range(config["epochs"]):
-        print(f"Epoch {t+1}\n-------------------------------")
-        start_time = time.perf_counter()
-        train(train_data_loader, model, loss_fn, optimizer)
-        torch.save(model.state_dict(), state_path)
-        test(test_data_loader, model, loss_fn)
-        end_time = time.perf_counter()
+    with open(state_path + "/epoch_runs.jl", "a") as f:
+        best_accuracy = max((epoch_run["test_accuracy"] for epoch_run in epoch_runs), default=0)
 
-        runtime = end_time-start_time
-        epoch_benchmark.append(runtime)
-        print("Epoch runtime:", datetime.timedelta(seconds=runtime))
-        print("Estimated finishing time:",
-              datetime.datetime.now() + datetime.timedelta(seconds=np.average(epoch_benchmark)*(config["epochs"]-t-1)))
-        print()
+        for t in range(config["epochs"]):
+            print(f"Epoch {t+1}\n-------------------------------")
+            start_time = time.perf_counter()
+            avg_loss = train(train_data_loader, model, loss_fn, optimizer)
+            torch.save(model.state_dict(), state_path + "/last")
+            accuracy = test(test_data_loader, model, loss_fn)
+
+            if accuracy > best_accuracy:
+                torch.save(model.state_dict(), state_path + "/best")
+
+            end_time = time.perf_counter()
+            runtime = end_time-start_time
+
+            epoch_run = {"avg_loss": avg_loss, "test_accuracy": accuracy, "runtime": runtime, "config": config}
+            epoch_runs.append(epoch_run)
+            f.write(json.dumps(epoch_run) + "\n")
+            f.flush()
+
+            epoch_benchmark.append(runtime)
+            print("Epoch runtime:", datetime.timedelta(seconds=runtime))
+            print("Estimated finishing time:",
+                  datetime.datetime.now() +
+                  datetime.timedelta(seconds=np.average(epoch_benchmark)*(config["epochs"]-t-1)))
+            print()
 
 
 if __name__ == "__main__":
