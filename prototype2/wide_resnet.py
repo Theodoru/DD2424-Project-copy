@@ -193,15 +193,15 @@ def test(data_loader, model, loss_fn):
 
 
 DEFAULT_CONFIG = {
-    "batch_size": 64,
-    "epochs": 100,
-    "lr": 0.1,
+    "batch_size": 128,
+    "epochs": 50,
+    "lr": 0.01,
     "momentum": 0.9,
     "weight_decay": 0.0005,
     "depth": 16,
     "width": 8,
-    "dataset": "cifar100",
-    "image_size": 32,
+    "dataset": "food101",
+    "image_size": 128,
 }
 
 
@@ -359,6 +359,9 @@ def main(config):
     optimizer = torch.optim.SGD(model.parameters(), lr=config["lr"], momentum=config["momentum"],
                                 weight_decay=config["weight_decay"], dampening=0)
 
+    #schduler
+    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[80,120], gamma=0.1)
+
     # PyTorch optimization
     torch.backends.cudnn.benchmark = True
 
@@ -370,11 +373,13 @@ def main(config):
 
         for t, epoch_id in enumerate(range(first_id, first_id + config["epochs"])):
             print(f"Epoch {epoch_id}\n-------------------------------")
-            print('Training? ', model.training)
             start_time = time.perf_counter()
+            print(scheduler.get_last_lr())
             avg_loss = train(train_data_loader, model, loss_fn, optimizer)
             torch.save(model.state_dict(), state_path + "/last_model")
             accuracy = test(test_data_loader, model, loss_fn)
+
+            scheduler.step()
 
             if accuracy > best_accuracy:
                 torch.save(model.state_dict(), state_path + "/best_model")
